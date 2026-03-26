@@ -4,189 +4,200 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link rel="manifest" href="manifest.json">
-    <title>Vulcan SAMi PRO</title>
+    <title>Vulcan Golf Pro</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
-        :root { --neon: #00f2ea; --bg: #050505; --alert: #ff0000; }
-        html, body { height: 100%; width: 100%; margin: 0; padding: 0; background: #000; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
+        :root { --neon: #00f2ea; --bg: #0b0c10; --panel: #1f2833; --grass: #00ff41; --purple: #7a00ff; }
+        html, body { height: 100%; width: 100%; margin: 0; padding: 0; background: var(--bg); color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
         
-        .viewport { position: relative; width: 100vw; height: 100vh; background: #000; }
+        .container { display: flex; flex-direction: column; height: 100vh; width: 100vw; }
         
-        /* Infrared Night Vision Filter */
-        video { 
-            position: absolute; width: 100%; height: 100%; object-fit: cover; 
-            filter: brightness(1.4) contrast(2) saturate(0) sepia(1) hue-rotate(320deg) invert(1); 
-            opacity: 0.4; 
-        }
-        canvas { position: absolute; width: 100%; height: 100%; object-fit: cover; z-index: 10; pointer-events: none; }
+        /* Navigation Tabs */
+        .tabs { display: flex; background: #000; border-bottom: 1px solid var(--neon); z-index: 2000; }
+        .tab { flex: 1; padding: 15px; text-align: center; font-size: 11px; font-weight: bold; color: #444; cursor: pointer; text-transform: uppercase; }
+        .tab.active { color: var(--neon); border-bottom: 2px solid var(--neon); background: rgba(0, 242, 234, 0.1); }
 
-        /* UI Elements */
-        .ui-header { position: absolute; top: 20px; left: 20px; z-index: 100; font-size: 10px; text-transform: uppercase; letter-spacing: 2px; color: var(--alert); font-weight: bold; }
-        .dot { height: 8px; width: 8px; background: var(--alert); border-radius: 50%; display: inline-block; margin-right: 8px; box-shadow: 0 0 10px var(--alert); animation: blink 1s infinite; }
-        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        .view { flex-grow: 1; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+        .hidden { display: none !important; }
 
-        .flip-btn {
-            position: absolute; top: 20px; right: 20px; z-index: 1000;
-            background: rgba(0,0,0,0.6); border: 1px solid var(--alert); color: white;
-            width: 40px; height: 40px; border-radius: 50%; cursor: pointer; font-size: 18px;
+        /* GPS Overlay */
+        .stats-overlay { 
+            position: absolute; top: 0; left: 0; right: 0; z-index: 1000;
+            background: rgba(11, 12, 16, 0.85); padding: 12px; border-bottom: 1px solid #333;
+            display: flex; justify-content: space-around; text-align: center; backdrop-filter: blur(4px);
         }
+        .stat-box { flex: 1; }
+        .val { font-size: 22px; font-weight: 900; color: var(--neon); display: block; }
+        .lbl { font-size: 8px; color: #666; text-transform: uppercase; letter-spacing: 1px; }
 
-        /* Sidebar - ONLY POPS UP ON ALARM */
-        .sidebar { 
-            position: absolute; right: 0; top: 0; height: 100%; width: 90px; 
-            background: rgba(20, 0, 0, 0.95); border-left: 3px solid var(--alert); 
-            display: none; align-items: center; justify-content: center; z-index: 1100;
-            box-shadow: -10px 0 30px rgba(255, 0, 0, 0.5);
-        }
-        .fine-btn { 
-            transform: rotate(90deg); background: var(--alert); color: white; padding: 30px 60px; 
-            border: none; font-weight: 900; letter-spacing: 5px; border-radius: 8px; cursor: pointer;
-            box-shadow: 0 0 40px var(--alert); font-size: 18px; white-space: nowrap;
-        }
+        #map { flex-grow: 1; width: 100%; background: #111; }
 
-        #alarm-overlay { 
-            position: fixed; inset: 0; background: rgba(255, 0, 0, 0.5); 
-            display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 2000; 
-            animation: pulse 0.2s infinite; pointer-events: none;
-        }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.2; } 100% { opacity: 1; } }
+        /* Scorecard Table */
+        .score-view { padding: 20px; overflow-y: auto; background: var(--bg); }
+        .score-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+        .score-table th { color: var(--purple); text-align: left; padding: 10px; border-bottom: 1px solid #333; font-size: 10px; }
+        .score-table td { padding: 10px; border-bottom: 1px solid #222; }
+        input[type="number"] { width: 45px; background: #000; border: 1px solid #444; color: var(--neon); text-align: center; padding: 5px; border-radius: 4px; }
+
+        .total-box { margin-top: 20px; padding: 15px; background: var(--panel); border: 1px solid var(--purple); border-radius: 12px; display: flex; justify-content: space-between; align-items: center; }
+
+        .btn { background: var(--neon); color: #000; border: none; padding: 10px 15px; border-radius: 20px; font-weight: bold; cursor: pointer; text-transform: uppercase; font-size: 10px; }
     </style>
 </head>
 <body>
 
-<div id="alarm-overlay"></div>
+<div class="container">
+    <div class="tabs">
+        <div class="tab active" id="tab-gps" onclick="switchTab('gps')">Live GPS</div>
+        <div class="tab" id="tab-score" onclick="switchTab('score')">Scorecard</div>
+    </div>
 
-<div class="viewport">
-    <div class="ui-header"><span class="dot"></span> SAMi MOTION TRACER ACTIVE</div>
-    
-    <button class="flip-btn" onclick="flipCamera()">🔄</button>
+    <div id="view-gps" class="view">
+        <div class="stats-overlay">
+            <div class="stat-box">
+                <span class="val" id="dist-val">0</span>
+                <span class="lbl">Yards</span>
+            </div>
+            <div class="stat-box" style="border-left: 1px solid #333; border-right: 1px solid #333;">
+                <span class="val" id="club-val">--</span>
+                <span class="lbl">Club</span>
+            </div>
+            <div class="stat-box">
+                <span class="val" id="acc-val">Searching</span>
+                <span class="lbl">Signal</span>
+            </div>
+        </div>
+        <div id="map"></div>
+        <div style="position:absolute; bottom:20px; left:20px; right:20px; z-index:1000; display:flex; gap:10px;">
+            <button class="btn" style="flex:1" onclick="centerMap()">📍 Center GPS</button>
+            <button class="btn" style="flex:1; background:var(--purple); color:white;" onclick="clearTarget()">❌ Clear Target</button>
+        </div>
+    </div>
 
-    <video id="video" autoplay playsinline muted></video>
-    <canvas id="canvas"></canvas>
-
-    <div class="sidebar" id="safety-sidebar">
-        <button class="fine-btn" onclick="resetSystem()">I'M FINE</button>
+    <div id="view-score" class="view score-view hidden">
+        <h2 style="color:var(--neon); margin:0 0 10px 0; font-size: 18px;">ROUND TRACKER</h2>
+        <table class="score-table">
+            <thead>
+                <tr>
+                    <th>HOLE</th>
+                    <th>STROKES</th>
+                    <th>PUTTS</th>
+                </tr>
+            </thead>
+            <tbody id="score-body">
+                </tbody>
+        </table>
+        <div class="total-box">
+            <div>
+                <span class="lbl">TOTAL SCORE</span>
+                <span id="final-score" style="display:block; font-size: 24px; font-weight: 900; color: var(--purple);">0</span>
+            </div>
+            <button class="btn" style="background:#ff4444; color:white;" onclick="resetScore()">Reset Round</button>
+        </div>
     </div>
 </div>
 
 <script>
-    const video = document.getElementById('video');
-    const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    const sidebar = document.getElementById('safety-sidebar');
-    const alarmOverlay = document.getElementById('alarm-overlay');
-    
-    let prevFrame = null;
-    let jitterBuffer = [];
-    let isAlarming = false;
-    let audioCtx = null;
-    let siren = null;
-    let currentFacingMode = "environment"; 
+    let map, userMarker, targetMarker, polyline, userPos = null;
+    let scores = JSON.parse(localStorage.getItem('golf_scores') || "[]");
 
-    async function startCamera() {
-        if (video.srcObject) {
-            video.srcObject.getTracks().forEach(track => track.stop());
+    // Club Distances
+    const CLUBS = [
+        { name: "D", d: 240 }, { name: "3W", d: 215 }, { name: "5W", d: 195 },
+        { name: "4I", d: 180 }, { name: "5I", d: 170 }, { name: "6I", d: 160 },
+        { name: "7I", d: 150 }, { name: "8I", d: 140 }, { name: "9I", d: 130 },
+        { name: "PW", d: 115 }, { name: "SW", d: 95 }
+    ];
+
+    function switchTab(t) {
+        document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+        document.getElementById('tab-'+t).classList.add('active');
+        document.getElementById('view-gps').classList.toggle('hidden', t !== 'gps');
+        document.getElementById('view-score').classList.toggle('hidden', t !== 'score');
+        if (t === 'gps' && map) setTimeout(() => map.invalidateSize(), 100);
+    }
+
+    // MAP ENGINE
+    function initMap() {
+        map = L.map('map', { zoomControl: false, attributionControl: false }).setView([0,0], 2);
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}').addTo(map);
+
+        navigator.geolocation.watchPosition(pos => {
+            const { latitude, longitude, accuracy } = pos.coords;
+            userPos = [latitude, longitude];
+            document.getElementById('acc-val').innerText = accuracy < 10 ? "High" : "Low";
+            if (!userMarker) {
+                userMarker = L.circleMarker(userPos, { color: '#00f2ea', radius: 7, fillOpacity: 1 }).addTo(map);
+                map.setView(userPos, 18);
+            } else { userMarker.setLatLng(userPos); }
+            if (targetMarker) calcDist();
+        }, null, { enableHighAccuracy: true });
+
+        map.on('click', e => {
+            if (targetMarker) map.removeLayer(targetMarker);
+            targetMarker = L.marker(e.latlng).addTo(map);
+            calcDist();
+        });
+    }
+
+    function calcDist() {
+        if (!userPos || !targetMarker) return;
+        const dist = Math.round(map.distance(userPos, targetMarker.getLatLng()) * 1.09361);
+        document.getElementById('dist-val').innerText = dist;
+        if (polyline) map.removeLayer(polyline);
+        polyline = L.polyline([userPos, targetMarker.getLatLng()], { color: 'var(--neon)', weight: 2, dashArray: '5, 8' }).addTo(map);
+        const club = CLUBS.find(c => c.d <= dist + 10) || CLUBS[0];
+        document.getElementById('club-val').innerText = dist < 20 ? "P" : club.name;
+    }
+
+    function clearTarget() {
+        if (targetMarker) map.removeLayer(targetMarker);
+        if (polyline) map.removeLayer(polyline);
+        document.getElementById('dist-val').innerText = "0";
+        document.getElementById('club-val').innerText = "--";
+    }
+
+    function centerMap() { if (userPos) map.setView(userPos, 18); }
+
+    // SCORECARD ENGINE
+    function initScorecard() {
+        const body = document.getElementById('score-body');
+        body.innerHTML = "";
+        for (let i = 1; i <= 18; i++) {
+            const row = document.createElement('tr');
+            const data = scores[i-1] || { s: 0, p: 0 };
+            row.innerHTML = `
+                <td style="color:#666">Hole ${i}</td>
+                <td><input type="number" value="${data.s}" onchange="updateScore(${i-1}, 's', this.value)"></td>
+                <td><input type="number" value="${data.p}" onchange="updateScore(${i-1}, 'p', this.value)"></td>
+            `;
+            body.appendChild(row);
         }
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: currentFacingMode } 
-            });
-            video.srcObject = stream;
-            requestAnimationFrame(monitor);
-        } catch (err) {
-            alert("Please allow camera access for tracking.");
+        calculateTotal();
+    }
+
+    function updateScore(hole, type, val) {
+        if (!scores[hole]) scores[hole] = { s: 0, p: 0 };
+        scores[hole][type] = parseInt(val) || 0;
+        localStorage.setItem('golf_scores', JSON.stringify(scores));
+        calculateTotal();
+    }
+
+    function calculateTotal() {
+        const total = scores.reduce((acc, curr) => acc + (curr.s || 0), 0);
+        document.getElementById('final-score').innerText = total;
+    }
+
+    function resetScore() {
+        if (confirm("Reset Round?")) {
+            scores = [];
+            localStorage.setItem('golf_scores', "[]");
+            initScorecard();
         }
     }
 
-    function flipCamera() {
-        currentFacingMode = currentFacingMode === "environment" ? "user" : "environment";
-        startCamera();
-    }
-
-    function monitor() {
-        if (isAlarming) return requestAnimationFrame(monitor);
-
-        if (canvas.width !== video.videoWidth) {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-        }
-
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const currentFrame = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        
-        if (prevFrame) {
-            let movePoints = 0;
-            let minX = canvas.width, minY = canvas.height, maxX = 0, maxY = 0;
-
-            // Highly Sensitive Pixel Difference Engine
-            for (let i = 0; i < currentFrame.data.length; i += 28) { 
-                const diff = Math.abs(currentFrame.data[i] - prevFrame.data[i]);
-                if (diff > 40) { // Lower threshold for nighttime sensitivity
-                    movePoints++;
-                    const x = (i / 4) % canvas.width;
-                    const y = Math.floor((i / 4) / canvas.width);
-                    if (x < minX) minX = x; if (x > maxX) maxX = x;
-                    if (y < minY) minY = y; if (y > maxY) maxY = y;
-                }
-            }
-
-            // RED OUTLINE logic
-            if (movePoints > 60) {
-                ctx.strokeStyle = "#ff0000";
-                ctx.lineWidth = 10;
-                ctx.strokeRect(minX - 15, minY - 15, (maxX - minX) + 30, (maxY - minY) + 30);
-                
-                // Jitter Detection (25-frame limit)
-                jitterBuffer.push(movePoints);
-                if (jitterBuffer.length > 25) {
-                    const avg = jitterBuffer.reduce((a,b) => a+b) / 25;
-                    const currentShake = Math.abs(movePoints - avg);
-                    
-                    // If shaking exceeds 25-frame speed limit
-                    if (currentShake > 1800) triggerAlarm();
-                    jitterBuffer.shift();
-                }
-            } else {
-                if (jitterBuffer.length > 0) jitterBuffer.shift();
-            }
-        }
-        prevFrame = currentFrame;
-        requestAnimationFrame(monitor);
-    }
-
-    function triggerAlarm() {
-        if (isAlarming) return;
-        isAlarming = true;
-        
-        // POPS UP ONLY NOW
-        sidebar.style.display = 'flex';
-        alarmOverlay.style.display = 'flex';
-        
-        if (!audioCtx) audioCtx = new AudioContext();
-        siren = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        siren.type = 'sawtooth';
-        siren.frequency.setValueAtTime(880, audioCtx.currentTime); 
-        siren.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.1);
-        gain.gain.value = 0.9;
-        siren.connect(gain);
-        gain.connect(audioCtx.destination);
-        siren.start();
-        if (navigator.vibrate) navigator.vibrate([400, 200, 400]);
-    }
-
-    function resetSystem() {
-        isAlarming = false;
-        jitterBuffer = [];
-        sidebar.style.display = 'none';
-        alarmOverlay.style.display = 'none';
-        if (siren) { siren.stop(); siren = null; }
-        ctx.clearRect(0,0,canvas.width, canvas.height);
-        requestAnimationFrame(monitor);
-    }
-
-    // Audio unlock
-    window.addEventListener('touchstart', () => { if(!audioCtx) audioCtx = new AudioContext(); }, {once: true});
-    startCamera();
+    window.onload = () => { initMap(); initScorecard(); };
 </script>
 </body>
 </html>
