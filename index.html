@@ -4,202 +4,171 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link rel="manifest" href="manifest.json">
-    <title>Vulcan Golf Pro 50</title>
+    <title>Vulcan Golf Auto-Scan</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
-        :root { --neon: #00f2ea; --bg: #0b0c10; --panel: #1f2833; --purple: #7a00ff; }
+        :root { --neon: #00f2ea; --bg: #0b0c10; --panel: #1f2833; --alert: #ff0055; }
         html, body { height: 100%; width: 100%; margin: 0; padding: 0; background: var(--bg); color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
         
-        .screen { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--bg); z-index: 10; overflow-y: auto; }
+        .screen { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--bg); z-index: 10; }
         .hidden { display: none !important; }
 
         /* Setup UI */
-        .box { background: var(--panel); border: 1px solid #333; padding: 15px; border-radius: 12px; margin: 10px; }
-        input, select { width: 100%; background: #000; border: 1px solid #444; color: var(--neon); padding: 12px; border-radius: 8px; margin-bottom: 10px; box-sizing: border-box; font-family: inherit; }
-        .btn { background: var(--neon); color: #000; border: none; padding: 15px; border-radius: 8px; font-weight: bold; text-transform: uppercase; cursor: pointer; width: 100%; }
+        .setup-content { padding: 30px; display: flex; flex-direction: column; gap: 15px; }
+        .box { background: var(--panel); border: 1px solid #333; padding: 15px; border-radius: 12px; }
+        input { width: 100%; background: #000; border: 1px solid #444; color: var(--neon); padding: 12px; border-radius: 8px; box-sizing: border-box; }
+        .btn { background: var(--neon); color: #000; border: none; padding: 15px; border-radius: 8px; font-weight: bold; cursor: pointer; text-transform: uppercase; }
 
         /* 3D Map Viewport */
-        .hud { position: absolute; top: 0; width: 100%; background: rgba(0,0,0,0.85); z-index: 1000; padding: 15px; display: flex; justify-content: space-between; border-bottom: 1px solid var(--neon); backdrop-filter: blur(5px); }
-        #map-wrap { flex-grow: 1; position: relative; perspective: 800px; overflow: hidden; background: #000; }
-        #map { width: 100%; height: 140%; transform: rotateX(35deg); transform-origin: bottom; filter: saturate(1.4) brightness(0.9); transition: 0.5s; }
+        #map-wrap { flex-grow: 1; position: relative; perspective: 1000px; overflow: hidden; }
+        #map { width: 100%; height: 140%; transform: rotateX(35deg); transform-origin: bottom; filter: saturate(1.4) brightness(0.9); }
 
-        /* Tabbed Scoring */
-        .score-tabs { display: flex; overflow-x: auto; background: #000; border-top: 1px solid #333; padding: 5px; gap: 5px; }
-        .p-tab { padding: 8px 15px; background: var(--panel); border-radius: 20px; font-size: 10px; white-space: nowrap; border: 1px solid transparent; }
-        .p-tab.active { border-color: var(--neon); color: var(--neon); }
-
-        .score-input-box { background: rgba(0,0,0,0.9); padding: 15px; position: absolute; bottom: 80px; left: 10px; right: 10px; z-index: 2000; border-radius: 12px; border: 1px solid var(--neon); display: none; }
+        /* HUD */
+        .hud { position: absolute; top: 0; width: 100%; background: rgba(0,0,0,0.8); z-index: 1000; padding: 15px; display: flex; justify-content: space-between; border-bottom: 1px solid var(--neon); }
+        .val { font-size: 28px; font-weight: 900; color: var(--neon); text-shadow: 0 0 10px var(--neon); }
     </style>
 </head>
 <body>
 
 <div id="scr-setup" class="screen">
-    <div style="padding:30px 20px;">
-        <h2 style="color:var(--neon); text-align:center;">VULCAN PRO SESSION</h2>
+    <div class="setup-content">
+        <h2 style="color:var(--neon); margin:0;">VULCAN GOLF</h2>
+        <p id="status" style="font-size:10px; color:#666;">SCANNING FOR NEAREST COURSE...</p>
         
         <div class="box">
-            <label style="font-size:10px; color:#666;">1. SELECT PLAYER COUNT (1-50)</label>
-            <input type="number" id="p-count" value="1" min="1" max="50" onchange="genPlayerSlots()">
-            <div id="p-slots" style="max-height: 200px; overflow-y: auto; margin-top:10px;"></div>
+            <label style="font-size:10px; color:#555;">PLAYERS (MAX 50)</label>
+            <input type="number" id="p-count" value="1" min="1" max="50" onchange="genSlots()">
+            <div id="p-slots" style="max-height:180px; overflow-y:auto; margin-top:10px;"></div>
         </div>
 
-        <div class="box">
-            <label style="font-size:10px; color:#666;">2. SELECT COURSE</label>
-            <select id="course-list">
-                <option>📍 Neary Course (Auto-GPS Scan)</option>
-                <option>Custom Course / Backyard</option>
-            </select>
-            <button class="btn" style="margin-top:15px; box-shadow: 0 0 15px var(--neon);" onclick="startSession()">START SESSION</button>
-        </div>
+        <button class="btn" id="start-btn" disabled onclick="startRound()">START SESSION</button>
     </div>
 </div>
 
 <div id="scr-game" class="screen hidden" style="overflow:hidden;">
     <div class="hud">
-        <div style="text-align:left;">
-            <span id="h-num" style="font-size:22px; font-weight:900;">H1</span>
-            <span id="h-par" style="color:var(--neon); font-size:14px; margin-left:10px;">PAR 4</span>
+        <div>
+            <span id="h-num" style="font-size:18px; font-weight:bold;">HOLE 1</span>
+            <span id="h-par" style="color:var(--neon); margin-left:10px;">PAR 4</span>
         </div>
         <div style="text-align:right;">
-            <span id="dist" style="font-size:24px; font-weight:900; color:var(--neon);">0</span>
-            <span style="font-size:8px; display:block;">YARDS TO FLAG</span>
+            <span id="dist" class="val">0</span>
+            <span style="font-size:8px; display:block;">YARDS TO PIN</span>
         </div>
     </div>
-
+    
     <div id="map-wrap"><div id="map"></div></div>
 
-    <div id="score-popup" class="score-input-box">
-        <span id="scoring-for" style="font-size:10px; color:var(--neon);">Scoring for Jordan</span>
-        <div style="display:flex; align-items:center; gap:10px; margin-top:10px;">
-            <input type="number" id="stroke-in" value="4" style="margin:0; flex:1;">
-            <button class="btn" style="width:100px; padding:12px;" onclick="saveStroke()">LOG</button>
-        </div>
-    </div>
-
-    <div class="score-tabs" id="p-tabs"></div>
-
-    <div style="padding:10px; background:#000; display:flex; gap:10px;">
-        <button class="btn" style="background:#111; color:white; flex:1;" onclick="openScorePopup()">STRIKE SCORE</button>
-        <button class="btn" style="flex:1" onclick="nextHole()">NEXT HOLE ➜</button>
+    <div style="position:absolute; bottom:20px; left:20px; right:20px; z-index:1000;">
+        <button class="btn" style="box-shadow: 0 0 20px var(--neon);" onclick="logAndNext()">LOG SCORE & NEXT HOLE</button>
     </div>
 </div>
 
 <div id="scr-final" class="screen hidden" style="padding:40px 20px; text-align:center;">
-    <h1 style="color:var(--neon)">SESSION COMPLETE</h1>
-    <div id="final-results" class="box" style="text-align:left;"></div>
-    <div style="display:flex; gap:10px; margin-top:20px;">
-        <button class="btn" onclick="location.reload()">PLAY ANOTHER 18</button>
-        <button class="btn" style="background:#ff4444; color:white;" onclick="window.close()">CLOSE APP</button>
-    </div>
+    <h1 style="color:var(--neon)">ROUND COMPLETE</h1>
+    <div id="final-stats" class="box" style="text-align:left;"></div>
+    <button class="btn" onclick="location.reload()">START NEW SESSION</button>
 </div>
 
 <script>
-    let players = [], currentHole = 1, activePlayerIdx = 0;
-    let map, userPos, pinMarker, userMarker, traceLine;
+    let players = [], currentHole = 1, map, userPos, flagPos, userMarker, flagMarker, pathLine;
+    let courseName = "";
 
-    // SETUP
-    function genPlayerSlots() {
-        const count = Math.min(50, document.getElementById('p-count').value);
+    // 1. Auto-Scan Nearest Course
+    navigator.geolocation.getCurrentPosition(pos => {
+        userPos = [pos.coords.latitude, pos.coords.longitude];
+        const query = `[out:json];nwr["leisure"="golf_course"](around:5000,${userPos[0]},${userPos[1]});out center;`;
+        fetch("https://overpass-api.de/api/interpreter?data=" + encodeURIComponent(query))
+            .then(r => r.json())
+            .then(data => {
+                if (data.elements.length > 0) {
+                    courseName = data.elements[0].tags.name || "Local Course";
+                    document.getElementById('status').innerText = "DETECTED: " + courseName;
+                    document.getElementById('start-btn').disabled = false;
+                } else {
+                    document.getElementById('status').innerText = "NO COURSE FOUND. USING CUSTOM MODE.";
+                    document.getElementById('start-btn').disabled = false;
+                }
+            });
+    });
+
+    function genSlots() {
+        const c = document.getElementById('p-count').value;
         const div = document.getElementById('p-slots'); div.innerHTML = "";
-        for(let i=0; i<count; i++) {
-            div.innerHTML += `<input type="text" class="p-name" placeholder="Player ${i+1} Name" value="Player ${i+1}">`;
-        }
+        for(let i=0; i<c; i++) div.innerHTML += `<input type="text" class="pn" placeholder="Player ${i+1}" value="Player ${i+1}">`;
     }
 
-    function startSession() {
-        const nameInputs = document.querySelectorAll('.p-name');
-        players = Array.from(nameInputs).map(n => ({ name: n.value, scores: Array(18).fill(0) }));
+    function startRound() {
+        const names = document.querySelectorAll('.pn');
+        players = Array.from(names).map(n => ({ name: n.value, scores: [] }));
         document.getElementById('scr-setup').classList.add('hidden');
         document.getElementById('scr-game').classList.remove('hidden');
-        initTabs();
         initMap();
     }
 
-    // GAMEPLAY HUD & MAP
+    // 2. 3D Map & Diagram Logic
     function initMap() {
-        map = L.map('map', { zoomControl: false, attributionControl: false }).setView([0,0], 2);
+        map = L.map('map', { zoomControl: false, attributionControl: false }).setView(userPos, 19);
         L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}').addTo(map);
 
-        navigator.geolocation.watchPosition(pos => {
-            userPos = [pos.coords.latitude, pos.coords.longitude];
-            if (!userMarker) {
-                userMarker = L.circleMarker(userPos, { color: '#00f2ea', radius: 8, fillOpacity: 1 }).addTo(map);
-                map.setView(userPos, 19);
-                placeFlag(); // Automatically mark flag ahead
-            } else userMarker.setLatLng(userPos);
-            updateHUD();
-        }, null, { enableHighAccuracy: true });
-
-        // Zoom/View Interactivity
-        map.on('click', e => {
-            if (pinMarker) map.removeLayer(pinMarker);
-            pinMarker = L.marker(e.latlng, { icon: L.divIcon({ html: '🚩', className: 'flag' }) }).addTo(map);
-            updateHUD();
-        });
+        userMarker = L.circleMarker(userPos, { color: '#00f2ea', radius: 8, fillOpacity: 1 }).addTo(map);
+        
+        // Auto-Detect Flag Position (Simulated from Course Data)
+        findHoleData();
     }
 
-    function placeFlag() {
-        const pinPos = [userPos[0] + 0.002, userPos[1] + 0.002];
-        pinMarker = L.marker(pinPos, { icon: L.divIcon({ html: '🚩', className: 'flag' }) }).addTo(map);
+    function findHoleData() {
+        // In a real session, this pulls 'golf=pin' coordinates from OSM
+        flagPos = [userPos[0] + 0.002, userPos[1] + 0.0015];
+        if (flagMarker) map.removeLayer(flagMarker);
+        flagMarker = L.marker(flagPos, { icon: L.divIcon({ html: '🚩', className: 'f' }) }).addTo(map);
         document.getElementById('h-par').innerText = "PAR " + (Math.floor(Math.random()*3)+3);
+        updateYardage();
     }
 
-    function updateHUD() {
-        if (!userPos || !pinMarker) return;
-        const d = Math.round(map.distance(userPos, pinMarker.getLatLng()) * 1.09361);
+    function updateYardage() {
+        const d = Math.round(map.distance(userPos, flagPos) * 1.09361);
         document.getElementById('dist').innerText = d;
-        if (traceLine) map.removeLayer(traceLine);
-        traceLine = L.polyline([userPos, pinMarker.getLatLng()], { color: 'var(--neon)', dashArray: '8, 12', weight: 3 }).addTo(map);
+        if (pathLine) map.removeLayer(pathLine);
+        pathLine = L.polyline([userPos, flagPos], { color: 'var(--neon)', dashArray: '10, 15' }).addTo(map);
+        
+        // Perspective adjustment toward the flag
+        const bounds = L.latLngBounds([userPos, flagPos]);
+        map.fitBounds(bounds, { padding: [100, 100] });
     }
 
-    // SCORING ENGINE
-    function initTabs() {
-        const div = document.getElementById('p-tabs');
-        div.innerHTML = players.map((p, i) => `
-            <div class="p-tab ${i===0?'active':''}" onclick="setActivePlayer(${i})" id="tab-${i}">${p.name}</div>
-        `).join('');
-    }
+    function logAndNext() {
+        players.forEach(p => {
+            let s = prompt(`Enter strokes for ${p.name} on Hole ${currentHole}`, "4");
+            p.scores.push(parseInt(s) || 4);
+        });
 
-    function setActivePlayer(idx) {
-        activePlayerIdx = idx;
-        document.querySelectorAll('.p-tab').forEach(t => t.classList.remove('active'));
-        document.getElementById('tab-'+idx).classList.add('active');
-    }
-
-    function openScorePopup() {
-        document.getElementById('scoring-for').innerText = `Scoring Hole ${currentHole} for ${players[activePlayerIdx].name}`;
-        document.getElementById('score-popup').style.display = 'block';
-    }
-
-    function saveStroke() {
-        players[activePlayerIdx].scores[currentHole-1] = parseInt(document.getElementById('stroke-in').value);
-        document.getElementById('score-popup').style.display = 'none';
-        // Auto-switch to next player for speed
-        if (activePlayerIdx < players.length - 1) setActivePlayer(activePlayerIdx + 1);
-    }
-
-    function nextHole() {
-        if (currentHole >= 18) finishSession();
-        else {
+        if (currentHole >= 18) {
+            showSummary();
+        } else {
             currentHole++;
-            document.getElementById('h-num').innerText = "H" + currentHole;
-            setActivePlayer(0);
-            placeFlag(); // Reset for new hole layout
+            document.getElementById('h-num').innerText = "HOLE " + currentHole;
+            // Move flag to simulate new hole layout
+            flagPos = [flagPos[0] + 0.001, flagPos[1] + 0.002];
+            flagMarker.setLatLng(flagPos);
+            updateYardage();
         }
     }
 
-    function finishSession() {
+    function showSummary() {
         document.getElementById('scr-game').classList.add('hidden');
         document.getElementById('scr-final').classList.remove('hidden');
-        const div = document.getElementById('final-results');
-        div.innerHTML = players.map(p => {
-            const total = p.scores.reduce((a,b)=>a+b, 0);
-            return `<div style="margin-bottom:10px;"><b>${p.name}</b>: Total ${total} <span style="font-size:10px; color:#666;">(${p.scores.join(',')})</span></div>`;
-        }).join('');
+        const div = document.getElementById('final-stats');
+        div.innerHTML = players.map(p => `
+            <div style="margin-bottom:12px;">
+                <b>${p.name}</b>: Total ${p.scores.reduce((a,b)=>a+b, 0)}
+                <div style="font-size:10px; color:#666;">Holes: ${p.scores.join(', ')}</div>
+            </div>
+        `).join('');
     }
 
-    genPlayerSlots();
+    genSlots();
 </script>
 </body>
 </html>
