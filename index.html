@@ -4,57 +4,53 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link rel="manifest" href="manifest.json">
-    <title>Vulcan Guard Pro</title>
+    <title>Vulcan Guard: Human Only</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tracking.js/1.1.3/tracking-min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tracking.js/1.1.3/data/face-min.js"></script>
     <style>
         :root { --neon: #00f2ea; --bg: #0b0c10; --alert: #ff0055; --tracking: #ff0000; }
         html, body { height: 100%; width: 100%; margin: 0; padding: 0; background: #000; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
         
-        .viewport { position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-        video { position: absolute; width: 100%; height: 100%; object-fit: cover; opacity: 0.7; }
+        .viewport { position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
+        video { position: absolute; width: 100%; height: 100%; object-fit: cover; opacity: 0.5; filter: grayscale(1) contrast(1.2); }
         canvas { position: absolute; width: 100%; height: 100%; object-fit: cover; z-index: 10; }
 
-        /* Status UI */
-        .status-ui { position: absolute; top: 20px; left: 20px; z-index: 100; font-size: 11px; text-transform: uppercase; letter-spacing: 2px; }
+        /* UI Elements */
+        .status-ui { position: absolute; top: 20px; left: 20px; z-index: 100; font-size: 10px; text-transform: uppercase; letter-spacing: 2px; color: var(--neon); }
         .dot { height: 8px; width: 8px; background: var(--tracking); border-radius: 50%; display: inline-block; margin-right: 8px; box-shadow: 0 0 10px var(--tracking); }
 
-        /* The Interactive Sidebar */
         .sidebar { 
             position: absolute; right: 0; top: 0; height: 100%; width: 85px; 
             background: rgba(10, 0, 0, 0.9); border-left: 2px solid var(--alert); 
-            display: flex; align-items: center; justify-content: center; z-index: 1000; pointer-events: auto;
-            box-shadow: -10px 0 20px rgba(0,0,0,0.5);
+            display: flex; align-items: center; justify-content: center; z-index: 1000;
         }
         .fine-btn { 
             transform: rotate(90deg); background: var(--alert); color: white; padding: 25px 55px; 
             border: none; font-weight: 900; letter-spacing: 4px; border-radius: 6px; cursor: pointer;
-            box-shadow: 0 0 30px var(--alert); font-size: 16px; text-transform: uppercase;
+            box-shadow: 0 0 30px var(--alert); font-size: 16px;
         }
 
-        /* Emergency Flash Overlay */
         #alarm-overlay { 
-            position: fixed; inset: 0; background: rgba(255, 0, 85, 0.85); 
+            position: fixed; inset: 0; background: rgba(255, 0, 85, 0.9); 
             display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 2000; 
-            animation: pulse 0.6s infinite; pointer-events: none;
+            animation: pulse 0.4s infinite; pointer-events: none;
         }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
     </style>
 </head>
 <body>
 
 <div id="alarm-overlay">
-    <h1 style="font-size: 45px; text-transform: uppercase; text-shadow: 0 0 20px #000;">Emergency Detetced</h1>
-    <p style="letter-spacing: 2px;">HIT SIDEBAR TO RESET</p>
+    <h1 style="font-size: 40px; text-align: center; text-transform: uppercase;">Human Distress Detected</h1>
+    <p>TAP SIDEBAR TO RESET SYSTEM</p>
 </div>
 
 <div class="viewport">
-    <div class="status-ui"><span class="dot"></span> Vulcan Tracking Engine</div>
-    
+    <div class="status-ui"><span class="dot"></span> Human Scan Active</div>
     <video id="video" preload autoplay loop muted playsinline></video>
     <canvas id="canvas"></canvas>
-
     <div class="sidebar">
-        <button class="fine-btn" onclick="resetEmergency()">I'M FINE</button>
+        <button class="fine-btn" onclick="resetSystem()">I'M FINE</button>
     </div>
 </div>
 
@@ -67,104 +63,80 @@
     let isEmergency = false;
     let audioCtx = null;
     let alarmOscillator = null;
+    let personHistory = [];
 
-    // Movement History Buffer for Jitter Detection
-    const TRACKING_HISTORY_LIMIT = 20;
-    let objectHistory = {};
-
-    // 1. Activate Camera
+    // 1. Start Camera
     navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
         .then(stream => { 
             video.srcObject = stream; 
-            // Required for audio playback security
-            window.addEventListener('click', () => { if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }, {once: true});
-        })
-        .catch(() => alert("Camera permission required for Object Tracking."));
+            // Unlock audio context on first click
+            window.addEventListener('click', () => { if(!audioCtx) audioCtx = new AudioContext(); }, {once: true});
+        });
 
-    // 2. Setup Object Tracking Engine
-    // We use ColorTracker as a high-speed motion fallback for "things"
-    const tracker = new tracking.ColorTracker(['magenta', 'cyan', 'yellow']);
-    
+    // 2. Human Face/Object Tracker
+    const tracker = new tracking.ObjectTracker(['face']);
+    tracker.setInitialScale(4);
+    tracker.setStepSize(2);
+    tracker.setEdgesDensity(0.1);
+
     tracker.on('track', function(event) {
         if (isEmergency) return;
-        
         context.clearRect(0, 0, canvas.width, canvas.height);
-        
-        event.data.forEach(function(rect, index) {
-            // Draw Tracking Highlight (Red Box)
+
+        event.data.forEach(function(rect) {
+            // Highlight Person in Red
             context.strokeStyle = '#ff0000';
             context.lineWidth = 4;
             context.strokeRect(rect.x, rect.y, rect.width, rect.height);
             
-            // Analyze Jitter/Seizure Pattern
-            analyzeMovement(index, rect);
+            analyzeJitter(rect);
         });
     });
 
-    // 3. Jitter Analytics Engine
-    function analyzeMovement(id, rect) {
-        if (!objectHistory[id]) objectHistory[id] = [];
-        
-        const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-        objectHistory[id].push(center);
+    // 3. Jitter Detection for People
+    function analyzeJitter(rect) {
+        const center = { x: rect.x + rect.width/2, y: rect.y + rect.height/2 };
+        personHistory.push(center);
 
-        if (objectHistory[id].length > TRACKING_HISTORY_LIMIT) {
-            objectHistory[id].shift();
-
-            // Calculate Frequency of direction changes (Jitter)
-            let jitterCount = 0;
-            for (let i = 2; i < objectHistory[id].length; i++) {
-                const p1 = objectHistory[id][i-2];
-                const p2 = objectHistory[id][i-1];
-                const p3 = objectHistory[id][i];
-
-                const v1 = { x: p2.x - p1.x, y: p2.y - p1.y };
-                const v2 = { x: p3.x - p2.x, y: p3.y - p2.y };
-
-                // Dot product shows sudden reversals
-                const dotProduct = v1.x * v2.x + v1.y * v2.y;
-                if (dotProduct < -50) { // High threshold for sharp, chaotic movement
-                    jitterCount++;
-                }
+        if (personHistory.length > 15) {
+            personHistory.shift();
+            
+            let totalDev = 0;
+            for(let i = 1; i < personHistory.length; i++) {
+                totalDev += Math.abs(personHistory[i].x - personHistory[i-1].x);
+                totalDev += Math.abs(personHistory[i].y - personHistory[i-1].y);
             }
 
-            // If object is rapidly changing direction while mostly stationary
-            if (jitterCount > 8 && rect.width < (canvas.width * 0.5)) {
+            // If the person's face/body is vibrating rapidly
+            if (totalDev > 400) {
                 triggerEmergency();
             }
         }
     }
 
-    // Start Tracking
     tracking.track('#video', tracker);
 
-    // 4. Emergency & Sidebar Logic
     function triggerEmergency() {
         if (isEmergency || !audioCtx) return;
         isEmergency = true;
         alarmOverlay.style.display = 'flex';
         
-        // Start Loud Alarm
+        // High-Pitch Safety Siren
         alarmOscillator = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-        
+        const gain = audioCtx.createGain();
         alarmOscillator.type = 'sawtooth';
-        alarmOscillator.frequency.setValueAtTime(660, audioCtx.currentTime); 
-        alarmOscillator.frequency.linearRampToValueAtTime(880, audioCtx.currentTime + 0.1);
-        alarmOscillator.frequency.setTargetAtTime(660, audioCtx.currentTime + 0.2, 0.1);
-        alarmOscillator.loop = true;
-
-        gainNode.gain.setValueAtTime(0.8, audioCtx.currentTime);
+        alarmOscillator.frequency.setValueAtTime(880, audioCtx.currentTime); 
+        alarmOscillator.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.2);
         
-        alarmOscillator.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
+        gain.gain.value = 1.0;
+        alarmOscillator.connect(gain);
+        gain.connect(audioCtx.destination);
         alarmOscillator.start();
     }
 
-    function resetEmergency() {
-        if (!isEmergency) return;
+    function resetSystem() {
         isEmergency = false;
-        objectHistory = {}; // Clear tracking data
+        personHistory = [];
         alarmOverlay.style.display = 'none';
         if (alarmOscillator) {
             alarmOscillator.stop();
@@ -172,13 +144,13 @@
         }
     }
 
-    // Sync canvas resolution
-    window.addEventListener('resize', syncCanvas);
-    function syncCanvas() {
+    // Handle Resize
+    window.addEventListener('resize', () => {
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
-    }
-    syncCanvas();
+    });
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
 </script>
 </body>
 </html>
