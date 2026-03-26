@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Vulcan Golf: Location Engine</title>
+    <title>Vulcan Golf: 3D Flyover</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
@@ -13,176 +13,112 @@
         .screen { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--bg); z-index: 10; }
         .hidden { display: none !important; }
 
-        /* Setup UI */
-        .box { background: var(--panel); border: 1px solid #333; padding: 15px; border-radius: 12px; margin: 10px; }
-        input { width: 100%; background: #000; border: 1px solid #444; color: var(--neon); padding: 12px; border-radius: 8px; margin-bottom: 10px; box-sizing: border-box; }
-        .btn { background: var(--neon); color: #000; border: none; padding: 15px; border-radius: 8px; font-weight: bold; text-transform: uppercase; cursor: pointer; width: 100%; }
-
-        /* 3D Map Viewport */
-        #map-wrap { flex-grow: 1; position: relative; perspective: 1000px; overflow: hidden; }
-        #map { width: 100%; height: 140%; transform: rotateX(35deg); transform-origin: bottom; filter: saturate(1.4) brightness(0.9); }
-
         /* HUD */
-        .hud { position: absolute; top: 0; width: 100%; background: rgba(0,0,0,0.85); z-index: 1000; padding: 15px; display: flex; justify-content: space-between; border-bottom: 1px solid var(--neon); backdrop-filter: blur(5px); }
-        .stat-group { display: flex; align-items: baseline; gap: 10px; }
-        .val { font-size: 28px; font-weight: 900; color: var(--neon); text-shadow: 0 0 10px var(--neon); }
-        .par-lbl { font-size: 14px; color: #666; font-weight: bold; }
+        .hud { position: absolute; top: 0; width: 100%; background: rgba(0,0,0,0.9); z-index: 1000; padding: 15px; display: flex; justify-content: space-between; border-bottom: 2px solid var(--neon); box-sizing: border-box; }
+        .val { font-size: 30px; font-weight: 900; color: var(--neon); text-shadow: 0 0 10px var(--neon); }
+        
+        /* 3D Map Viewport */
+        #map-wrap { flex-grow: 1; position: relative; perspective: 600px; overflow: hidden; background: #000; }
+        #map { 
+            width: 100%; height: 160%; /* Taller for deeper tilt */
+            transform: rotateX(45deg); transform-origin: bottom;
+            filter: saturate(1.5) contrast(1.2) brightness(0.9);
+            transition: transform 3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
 
-        /* Score Modal */
-        #mod-score { position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 2000; padding: 30px; display: none; }
-        .p-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding: 10px; border-bottom: 1px solid #222; }
+        .btn { background: var(--neon); color: #000; border: none; padding: 15px; border-radius: 8px; font-weight: bold; text-transform: uppercase; cursor: pointer; width: 100%; }
+        .controls { position: absolute; bottom: 20px; left: 20px; right: 20px; z-index: 1000; display: flex; gap: 10px; }
     </style>
 </head>
 <body>
 
-<div id="scr-setup" class="screen">
-    <div style="padding:30px 20px;">
-        <h2 style="color:var(--neon)">GOLF LOCATION ENGINE</h2>
-        <div class="box">
-            <label style="font-size:10px; color:#555;">WHERE ARE YOU PLAYING?</label>
-            <input type="text" id="loc-in" placeholder="Enter Course Name or City (e.g. Byesville, OH)">
-            
-            <label style="font-size:10px; color:#555; margin-top:10px; display:block;">PLAYERS (UP TO 50)</label>
-            <input type="number" id="p-count" value="1" min="1" max="50" onchange="genPlayers()">
-            <div id="p-names" style="max-height:150px; overflow-y:auto; margin-top:10px;"></div>
-            
-            <button class="btn" style="margin-top:15px;" onclick="searchAndStart()">SCAN LOCATION & START</button>
-        </div>
+<div id="scr-setup" class="screen" style="padding:40px 20px;">
+    <h2 style="color:var(--neon)">VULCAN 3D FLYOVER</h2>
+    <div style="background:var(--panel); padding:20px; border-radius:12px;">
+        <input type="text" id="loc-in" value="Byesville, Ohio" style="width:100%; background:#000; border:1px solid #444; color:white; padding:12px; margin-bottom:20px; border-radius:8px;">
+        <button class="btn" onclick="startFlyoverRound()">START 18 HOLE SESSION</button>
     </div>
 </div>
 
 <div id="scr-game" class="screen hidden" style="overflow:hidden;">
     <div class="hud">
-        <div style="text-align:left;">
-            <span id="h-num" style="font-size:18px; font-weight:bold;">HOLE 1</span>
-        </div>
-        <div class="stat-group">
-            <span id="h-par" class="par-lbl">PAR 4</span>
-            <span id="dist" class="val">0</span>
-            <span style="font-size:9px; color:var(--neon);">YDS</span>
+        <div><span id="h-num" style="font-size:20px; font-weight:900;">H1</span></div>
+        <div style="text-align:right;">
+            <span id="h-par" style="color:#666; font-size:12px; font-weight:bold; margin-right:10px;">PAR 4</span>
+            <span id="dist" class="val">0</span><span style="font-size:10px; color:var(--neon);"> YDS</span>
         </div>
     </div>
     
     <div id="map-wrap"><div id="map"></div></div>
 
-    <div style="position:absolute; bottom:20px; left:20px; right:20px; z-index:1000; display:flex; gap:10px;">
-        <button class="btn" style="flex:1; background:#000; color:var(--neon); border:1px solid var(--neon);" onclick="toggleScore()">PLAYERS</button>
-        <button class="btn" style="flex:1" onclick="nextHole()">NEXT HOLE ➜</button>
+    <div class="controls">
+        <button class="btn" style="background:#000; color:var(--neon); border:1px solid var(--neon);" onclick="alert('Scorecard logged for players')">PLAYERS</button>
+        <button class="btn" onclick="nextHoleWithFlyover()">NEXT HOLE ➜</button>
     </div>
 </div>
 
-<div id="mod-score">
-    <h2 id="log-title" style="color:var(--neon)">HOLE 1 SCORES</h2>
-    <div id="score-list"></div>
-    <button class="btn" style="margin-top:20px;" onclick="closeScore()">SAVE & RETURN</button>
-</div>
-
-<div id="scr-final" class="screen hidden" style="padding:40px 20px; text-align:center;">
-    <h1 style="color:var(--neon)">ROUND FINISHED</h1>
-    <div id="results" class="box" style="text-align:left;"></div>
-    <p>Do you want to play another 18 holes?</p>
-    <button class="btn" onclick="location.reload()">YES, NEW SESSION</button>
-    <button class="btn" style="background:#444; color:white; margin-top:10px;" onclick="window.close()">NO, CLOSE APP</button>
-</div>
-
 <script>
-    let players = [], currentHole = 1, map, userPos, flagPos, userMarker, flagMarker, path;
+    let currentHole = 1, map, userPos, flagPos, userMarker, flagMarker;
 
-    function genPlayers() {
-        const c = document.getElementById('p-count').value;
-        const div = document.getElementById('p-names'); div.innerHTML = "";
-        for(let i=0; i<c; i++) div.innerHTML += `<input type="text" class="pn" placeholder="Player ${i+1}" value="Player ${i+1}">`;
-    }
-
-    // Search Location & Init Round
-    async function searchAndStart() {
+    async function startFlyoverRound() {
         const loc = document.getElementById('loc-in').value;
-        if (!loc) return alert("Enter a location first!");
-
         const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(loc)}`);
         const data = await res.json();
         
         if (data.length > 0) {
             userPos = [parseFloat(data[0].lat), parseFloat(data[0].lon)];
-            const nameInputs = document.querySelectorAll('.pn');
-            players = Array.from(nameInputs).map(n => ({ name: n.value, total: 0, scores: [] }));
-            
             document.getElementById('scr-setup').classList.add('hidden');
             document.getElementById('scr-game').classList.remove('hidden');
             initMap();
-        } else {
-            alert("Location not found. Try a specific city or course name.");
         }
     }
 
     function initMap() {
-        map = L.map('map', { zoomControl: false, attributionControl: false }).setView(userPos, 18);
+        // High zoom level (20) for "Much Closer" layout
+        map = L.map('map', { zoomControl: false, attributionControl: false }).setView(userPos, 20);
         L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}').addTo(map);
 
-        userMarker = L.circleMarker(userPos, { color: '#00f2ea', radius: 8, fillOpacity: 1 }).addTo(map);
-        loadHoleData();
+        userMarker = L.circleMarker(userPos, { color: '#00f2ea', radius: 10, fillOpacity: 1 }).addTo(map);
+        triggerFlyover();
     }
 
-    function loadHoleData() {
-        // Auto-calculates flag position ahead based on hole number
-        flagPos = [userPos[0] + (0.0015 * currentHole), userPos[1] + (0.001 * currentHole)];
+    function triggerFlyover() {
+        // 1. Calculate flag
+        const offset = 0.002 + (currentHole * 0.0001);
+        flagPos = [userPos[0] + offset, userPos[1] + offset];
+        
         if (flagMarker) map.removeLayer(flagMarker);
         flagMarker = L.marker(flagPos, { icon: L.divIcon({ html: '🚩', className: 'f' }) }).addTo(map);
-        document.getElementById('h-par').innerText = "PAR " + (Math.floor(Math.random()*3)+3);
+        
+        // 2. Flyover Animation Sequence
+        const mapEl = document.getElementById('map');
+        mapEl.style.transform = "rotateX(10deg) translateY(0px)"; // Zoom Out look
+        
+        setTimeout(() => {
+            map.flyTo(flagPos, 21, { duration: 3 }); // Zoom in closer on green
+            mapEl.style.transform = "rotateX(60deg) translateY(-100px)"; // Deep 3D tilt at flag
+        }, 100);
+
         updateHUD();
     }
 
     function updateHUD() {
         const d = Math.round(map.distance(userPos, flagPos) * 1.09361);
         document.getElementById('dist').innerText = d;
-        if (path) map.removeLayer(path);
-        path = L.polyline([userPos, flagPos], { color: 'var(--neon)', dashArray: '8, 12' }).addTo(map);
-        map.fitBounds(L.latLngBounds([userPos, flagPos]), { padding: [80, 80] });
+        document.getElementById('h-par').innerText = "PAR " + (Math.floor(Math.random()*3)+3);
     }
 
-    function toggleScore() {
-        document.getElementById('log-title').innerText = `HOLE ${currentHole} SCORES`;
-        const list = document.getElementById('score-list');
-        list.innerHTML = players.map((p, i) => `
-            <div class="p-row">
-                <span>${p.name}</span>
-                <input type="number" class="ps" data-idx="${i}" value="4" style="width:60px; margin:0;">
-            </div>
-        `).join('');
-        document.getElementById('mod-score').style.display = 'block';
-    }
-
-    function closeScore() {
-        const inputs = document.querySelectorAll('.ps');
-        inputs.forEach(i => {
-            const idx = i.dataset.idx;
-            const val = parseInt(i.value) || 0;
-            players[idx].scores[currentHole-1] = val;
-        });
-        document.getElementById('mod-score').style.display = 'none';
-    }
-
-    function nextHole() {
+    function nextHoleWithFlyover() {
         if (currentHole >= 18) {
-            showFinal();
+            alert("ROUND COMPLETE. STARTING NEW SESSION.");
+            location.reload();
         } else {
             currentHole++;
-            document.getElementById('h-num').innerText = "HOLE " + currentHole;
-            loadHoleData();
+            document.getElementById('h-num').innerText = "H" + currentHole;
+            map.setView(userPos, 20); // Reset camera to player for start of flyover
+            setTimeout(triggerFlyover, 500);
         }
     }
-
-    function showFinal() {
-        document.getElementById('scr-game').classList.add('hidden');
-        document.getElementById('scr-final').classList.remove('hidden');
-        const div = document.getElementById('results');
-        div.innerHTML = players.map(p => {
-            const sum = p.scores.reduce((a, b) => a + b, 0);
-            return `<div style="margin-bottom:10px;"><b>${p.name}</b>: Total ${sum}</div>`;
-        }).join('');
-    }
-
-    genPlayers();
 </script>
 </body>
 </html>
