@@ -7,148 +7,115 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
-        :root { --neon: #00f2ea; --bg: #0b0c10; --panel: #1f2833; --alert: #ff0055; --gold: #ffd700; }
+        :root { --neon: #00f2ea; --bg: #0b0c10; --panel: #1f2833; --accent: #7a00ff; }
         html, body { height: 100%; width: 100%; margin: 0; padding: 0; background: var(--bg); color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
         
-        /* High-Visibility Cart HUD */
-        .cart-hud { 
-            position: absolute; top: 0; width: 100%; z-index: 1000; padding: 15px; 
-            background: rgba(0,0,0,0.9); border-bottom: 2px solid var(--neon);
-            display: grid; grid-template-columns: 1fr 1fr 1fr; text-align: center;
-        }
-        .big-val { font-size: 38px; font-weight: 900; color: var(--neon); line-height: 1; }
-        .sub-lbl { font-size: 9px; color: #666; text-transform: uppercase; letter-spacing: 1.5px; margin-top: 5px; }
+        /* 3D Map Viewport */
+        #map-wrap { flex-grow: 1; position: relative; perspective: 1000px; height: 100vh; overflow: hidden; }
+        #map { width: 100%; height: 150%; transform: rotateX(45deg); transform-origin: bottom; transition: transform 0.5s; }
 
-        /* Map Engine */
-        #map-container { perspective: 1200px; width: 100vw; height: 100vh; background: #000; overflow: hidden; }
-        #map { width: 100%; height: 150%; transform: rotateX(40deg); transform-origin: bottom; filter: saturate(1.4); transition: transform 0.8s; }
-
-        /* Flyover & Game Buttons */
-        .side-actions { position: absolute; right: 15px; top: 120px; z-index: 1000; display: flex; flex-direction: column; gap: 10px; }
-        .action-btn { background: rgba(0,0,0,0.8); border: 1px solid #444; color: white; width: 50px; height: 50px; border-radius: 50%; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-        .action-btn:active { background: var(--neon); color: black; border-color: var(--neon); }
-
-        /* Wager Tracker */
-        .wager-bar { 
-            position: absolute; bottom: 90px; left: 15px; right: 15px; z-index: 1000;
-            background: var(--panel); border: 1px solid var(--gold); border-radius: 10px;
-            padding: 10px; display: flex; justify-content: space-between; align-items: center;
-        }
-
-        .btn-main { background: var(--neon); color: black; border: none; padding: 18px; border-radius: 12px; font-weight: 900; text-transform: uppercase; cursor: pointer; width: calc(100% - 30px); position: absolute; bottom: 20px; left: 15px; z-index: 1000; }
+        /* Tournament HUD */
+        .hud { position: absolute; top: 0; width: 100%; z-index: 1000; background: rgba(0,0,0,0.85); padding: 10px; box-sizing: border-box; border-bottom: 2px solid var(--neon); }
+        .player-row { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; }
+        .score-box { background: #000; border: 1px solid #444; color: var(--neon); width: 40px; text-align: center; border-radius: 4px; padding: 5px; font-weight: bold; }
+        
+        .btn { background: var(--neon); color: #000; border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer; }
+        .controls { position: absolute; bottom: 20px; left: 15px; right: 15px; z-index: 1000; display: flex; gap: 10px; }
     </style>
 </head>
 <body>
 
-<div id="setup" style="position:fixed; inset:0; z-index:3000; background:var(--bg); padding:30px;">
-    <h1 style="color:var(--neon); margin:0;">THE CADDIE <span style="font-size:10px; vertical-align:middle; border:1px solid #444; padding:2px 5px; border-radius:4px;">PGA 2025</span></h1>
-    <div style="background:var(--panel); padding:20px; border-radius:15px; margin-top:20px; border:1px solid #333;">
-        <label class="sub-lbl">Select Game Mode</label>
-        <select id="game-mode" style="width:100%; background:#000; color:white; padding:12px; border-radius:8px; border:1px solid #444; margin-bottom:15px;">
-            <option>Stroke Play</option>
-            <option>Wolf / Match Play</option>
-            <option>Stableford</option>
-            <option>Nassau</option>
-        </select>
-        <label class="sub-lbl">Player Names (Comma Separated)</label>
-        <input type="text" id="names" value="Jordan, Alec, John" style="width:100%; background:#000; color:white; border:1px solid #444; padding:12px; margin-bottom:15px; border-radius:8px;">
-        <button class="btn-main" style="position:static; width:100%;" onclick="startCaddieSession()">ACTIVATE CADDIE</button>
+<div id="setup" style="position:fixed; inset:0; z-index:2000; background:var(--bg); padding:30px;">
+    <h2 style="color:var(--neon)">TOURNAMENT SETUP</h2>
+    <div style="background:var(--panel); padding:20px; border-radius:15px;">
+        <label style="font-size:12px; color:#aaa;">PLAYER COUNT</label>
+        <input type="number" id="p-count" value="4" style="width:100%; padding:12px; background:#000; color:white; border:1px solid #444; margin:10px 0;">
+        <button class="btn" style="width:100%" onclick="initTournament()">START ROUND</button>
     </div>
 </div>
 
-<div class="cart-hud">
-    <div><span class="sub-lbl">F</span><br><span id="dist-f" class="big-val">0</span></div>
-    <div><span class="sub-lbl">CENTER</span><br><span id="dist-c" class="big-val" style="color:white;">0</span></div>
-    <div><span class="sub-lbl">B</span><br><span id="dist-b" class="big-val">0</span></div>
+<div class="hud hidden" id="main-hud">
+    <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
+        <span id="h-info" style="font-weight:900;">HOLE 1</span>
+        <span style="color:var(--neon); font-weight:bold;"><span id="dist">---</span> YDS</span>
+    </div>
+    <div id="player-list"></div>
 </div>
 
-<div class="side-actions">
-    <button class="action-btn" onclick="toggleFlyover()" title="360 Flyover">🚁</button>
-    <button class="action-btn" onclick="toggleView()" title="2D/3D View">📐</button>
+<div id="map-wrap"><div id="map"></div></div>
+
+<div class="controls hidden" id="game-controls">
+    <button class="btn" style="flex:1" onclick="scoutHole()">SCOUT HOLE 🚁</button>
+    <button class="btn" style="flex:1; background:#000; color:var(--neon); border:1px solid var(--neon);" onclick="nextHole()">NEXT HOLE ➜</button>
 </div>
-
-<div id="map-container"><div id="map"></div></div>
-
-<div class="wager-bar">
-    <div><span class="sub-lbl" style="color:var(--gold);">LIVE POT</span><br><b id="pot-val">$45.00</b></div>
-    <div style="text-align:right;"><span class="sub-lbl">LEADER</span><br><b id="leader">Jordan (+2)</b></div>
-</div>
-
-<button class="btn-main" onclick="logScore()">LOG HOLE & STATS</button>
 
 <script>
-    let players = [], currentHole = 1, map, userPos, pinMarker, trace, is3D = true;
+    let players = [], currentHole = 1, map, userPos, pinPos, pinMarker;
 
-    function startCaddieSession() {
-        const nameList = document.getElementById('names').value.split(',');
-        players = nameList.map(n => ({ name: n.trim(), score: 0, gir: 0, fairway: false }));
+    function initTournament() {
+        const count = document.getElementById('p-count').value;
+        for(let i=1; i<=count; i++) {
+            players.push({ id: i, name: `P${i}`, par: 4, score: 0 });
+        }
         document.getElementById('setup').style.display = 'none';
-        initMap();
+        document.getElementById('main-hud').classList.remove('hidden');
+        document.getElementById('game-controls').classList.remove('hidden');
+        renderPlayers();
+        autoLocateCourse();
     }
 
-    function initMap() {
-        map = L.map('map', { zoomControl: false, attributionControl: false }).setView([0,0], 2);
-        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}').addTo(map);
+    function renderPlayers() {
+        const list = document.getElementById('player-list');
+        list.innerHTML = players.map(p => `
+            <div class="player-row">
+                <span style="flex:1; font-size:14px;">${p.name}</span>
+                <span style="font-size:10px; color:#666;">PAR</span>
+                <input type="number" class="score-box" value="${p.par}" onchange="players[${p.id-1}].par=this.value">
+                <span style="font-size:10px; color:#666;">SCORE</span>
+                <input type="number" class="score-box" style="color:white" value="${p.score}" onchange="players[${p.id-1}].score=this.value">
+            </div>
+        `).join('');
+    }
 
-        navigator.geolocation.watchPosition(pos => {
+    function autoLocateCourse() {
+        navigator.geolocation.getCurrentPosition(pos => {
             userPos = [pos.coords.latitude, pos.coords.longitude];
-            if (!userMarker) {
-                userMarker = L.circleMarker(userPos, { color: '#00f2ea', radius: 10, fillOpacity: 1 }).addTo(map);
-                map.setView(userPos, 19);
-                placeFlag(); // Auto-locate pin
-            } else { userMarker.setLatLng(userPos); }
-            updateDistances();
-        }, null, { enableHighAccuracy: true });
-
-        map.on('click', e => {
-            if (pinMarker) map.removeLayer(pinMarker);
-            pinMarker = L.marker(e.latlng, { icon: L.divIcon({ html: '🚩', className: 'f' }) }).addTo(map);
-            updateDistances();
+            initMap();
+        }, () => {
+            userPos = [40.0637, -81.5237]; // Default to Byesville
+            initMap();
         });
     }
 
-    function updateDistances() {
-        if (!userPos || !pinMarker) return;
-        const dM = map.distance(userPos, pinMarker.getLatLng());
-        const dY = Math.round(dM * 1.09361);
-        
-        // Pinned Caddie Yardages: Front, Center, Back
-        document.getElementById('dist-c').innerText = dY;
-        document.getElementById('dist-f').innerText = dY - 15;
-        document.getElementById('dist-b').innerText = dY + 15;
-
-        if (trace) map.removeLayer(trace);
-        trace = L.polyline([userPos, pinMarker.getLatLng()], { color: 'var(--neon)', weight: 3, dashArray: '10, 15' }).addTo(map);
+    function initMap() {
+        map = L.map('map', { zoomControl: false, attributionControl: false }).setView(userPos, 19);
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}').addTo(map);
+        L.circleMarker(userPos, { color: 'var(--neon)', radius: 8, fillOpacity: 1 }).addTo(map);
+        placePin();
     }
 
-    function toggleFlyover() {
-        // Drone style flyover animation
-        map.flyTo(pinMarker.getLatLng(), 20, { duration: 3 });
-        setTimeout(() => map.flyTo(userPos, 19, { duration: 2 }), 3500);
-    }
-
-    function toggleView() {
-        is3D = !is3D;
-        document.getElementById('map').style.transform = is3D ? "rotateX(40deg)" : "rotateX(0deg)";
-    }
-
-    function logScore() {
-        // Detailed Stat Capture
-        let strokes = prompt(`Strokes for ${players[0].name}?`, "4");
-        let fairway = confirm("Hit Fairway?");
-        let putts = prompt("How many putts?", "2");
-        alert("Stats Logged: GIR and Fairway accuracy updating in analytics.");
-        currentHole++;
-        placeFlag();
-    }
-
-    function placeFlag() {
-        if (!userPos) return;
+    function placePin() {
+        // Simulating "Dogleg" and "Curve" detection
         const offset = 0.002 + (currentHole * 0.0001);
-        const pinPos = [userPos[0] + offset, userPos[1] + offset];
+        pinPos = [userPos[0] + offset, userPos[1] + (currentHole % 2 === 0 ? offset : -offset)];
+        
         if (pinMarker) map.removeLayer(pinMarker);
         pinMarker = L.marker(pinPos, { icon: L.divIcon({ html: '🚩', className: 'f' }) }).addTo(map);
-        updateDistances();
+        
+        const d = Math.round(map.distance(userPos, pinPos) * 1.09361);
+        document.getElementById('dist').innerText = d;
+    }
+
+    function scoutHole() {
+        // "See the curves before you get there"
+        map.flyTo(pinPos, 20, { duration: 3 });
+        setTimeout(() => map.flyTo(userPos, 19, { duration: 2 }), 4000);
+    }
+
+    function nextHole() {
+        currentHole++;
+        document.getElementById('h-info').innerText = `HOLE ${currentHole}`;
+        placePin();
     }
 </script>
 </body>
