@@ -4,68 +4,64 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link rel="manifest" href="manifest.json">
-    <title>Vulcan Guard: IR Tracer PRO</title>
+    <title>Vulcan SAMi Monitor</title>
     <style>
-        :root { --neon: #00f2ea; --bg: #0b0c10; --alert: #ff0055; --ir-heat: #ff3c00; }
-        html, body { height: 100%; width: 100%; margin: 0; padding: 0; background: #000; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
+        :root { --neon: #00f2ea; --bg: #050505; --alert: #ff0055; --ir-heat: #ff3c00; }
+        html, body { height: 100%; width: 100%; margin: 0; padding: 0; background: var(--bg); color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
         
-        .viewport { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
+        /* Night Vision Filter (SAMi Style) */
         video { 
             position: absolute; width: 100%; height: 100%; object-fit: cover; 
-            filter: brightness(1.1) contrast(1.8) saturate(0) sepia(1) hue-rotate(320deg) invert(1); 
-            opacity: 0.35; 
+            filter: brightness(1.5) contrast(2) saturate(0) sepia(1) hue-rotate(80deg); 
+            opacity: 0.3; 
         }
         canvas { position: absolute; width: 100%; height: 100%; object-fit: cover; z-index: 10; pointer-events: none; }
-        #trailCanvas { position: absolute; width: 100%; height: 100%; object-fit: cover; z-index: 5; opacity: 0.7; pointer-events: none; }
 
-        /* UI Overlays */
-        .ui-header { position: absolute; top: 20px; left: 20px; z-index: 100; font-size: 10px; text-transform: uppercase; letter-spacing: 2px; color: var(--ir-heat); font-weight: bold; }
-        .dot { height: 8px; width: 8px; background: var(--ir-heat); border-radius: 50%; display: inline-block; margin-right: 8px; box-shadow: 0 0 10px var(--ir-heat); animation: blink 1s infinite; }
-        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+        /* Dimmed UI for Sleep */
+        .ui-header { position: absolute; top: 20px; left: 20px; z-index: 100; font-size: 9px; text-transform: uppercase; letter-spacing: 2px; color: #333; }
+        .dot { height: 6px; width: 6px; background: #222; border-radius: 50%; display: inline-block; margin-right: 8px; }
+        .active-dot { background: var(--neon); box-shadow: 0 0 10px var(--neon); animation: blink 2s infinite; }
 
-        /* Small Flip Camera Button */
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
+
+        /* Flip Camera Button */
         .flip-btn {
             position: absolute; top: 20px; right: 20px; z-index: 1000;
-            background: rgba(0,0,0,0.6); border: 1px solid var(--neon); color: var(--neon);
-            width: 40px; height: 40px; border-radius: 50%; cursor: pointer;
-            display: flex; align-items: center; justify-content: center; font-size: 18px;
-            box-shadow: 0 0 10px rgba(0, 242, 234, 0.3);
+            background: rgba(0,0,0,0.4); border: 1px solid #222; color: #444;
+            width: 35px; height: 35px; border-radius: 50%; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; font-size: 16px;
         }
 
-        /* Sidebar - HIDDEN BY DEFAULT */
+        /* Emergency Sidebar */
         .sidebar { 
-            position: absolute; right: 0; top: 0; height: 100%; width: 85px; 
-            background: rgba(20, 0, 0, 0.95); border-left: 2px solid var(--alert); 
+            position: absolute; right: 0; top: 0; height: 100%; width: 90px; 
+            background: rgba(30, 0, 0, 0.98); border-left: 3px solid var(--alert); 
             display: none; align-items: center; justify-content: center; z-index: 1100;
-            box-shadow: -10px 0 30px rgba(255, 0, 0, 0.3);
         }
         .fine-btn { 
-            transform: rotate(90deg); background: var(--alert); color: white; padding: 25px 55px; 
-            border: none; font-weight: 900; letter-spacing: 4px; border-radius: 6px; cursor: pointer;
-            box-shadow: 0 0 30px var(--alert); font-size: 16px; white-space: nowrap;
+            transform: rotate(90deg); background: var(--alert); color: white; padding: 30px 60px; 
+            border: none; font-weight: 900; letter-spacing: 5px; border-radius: 8px; cursor: pointer;
+            box-shadow: 0 0 40px var(--alert); font-size: 18px; white-space: nowrap;
         }
 
         #alarm-overlay { 
-            position: fixed; inset: 0; background: rgba(255, 0, 0, 0.6); 
+            position: fixed; inset: 0; background: rgba(255, 0, 0, 0.4); 
             display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 2000; 
-            animation: pulse 0.3s infinite; pointer-events: none;
+            animation: pulse 0.5s infinite; pointer-events: none;
         }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
     </style>
 </head>
 <body>
 
-<div id="alarm-overlay">
-    <h1 style="font-size: 35px; text-align: center; font-weight: 900; text-transform: uppercase; color: white;">Motion Warning</h1>
-</div>
+<div id="alarm-overlay"></div>
 
 <div class="viewport">
-    <div class="ui-header"><span class="dot"></span> IR TRACER v3.0</div>
+    <div class="ui-header"><span class="dot active-dot"></span> SAMi MONITORING ACTIVE</div>
     
     <button class="flip-btn" onclick="flipCamera()">🔄</button>
 
     <video id="video" autoplay playsinline muted></video>
-    <canvas id="trailCanvas"></canvas>
     <canvas id="canvas"></canvas>
 
     <div class="sidebar" id="safety-sidebar">
@@ -77,17 +73,15 @@
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    const trailCanvas = document.getElementById('trailCanvas');
-    const trailCtx = trailCanvas.getContext('2d');
     const sidebar = document.getElementById('safety-sidebar');
     const alarmOverlay = document.getElementById('alarm-overlay');
     
     let prevFrame = null;
-    let jitterBuffer = [];
+    let activityBuffer = [];
     let isAlarming = false;
     let audioCtx = null;
     let siren = null;
-    let currentFacingMode = "environment"; // Default to back camera
+    let currentFacingMode = "environment"; 
 
     async function startCamera() {
         if (video.srcObject) {
@@ -95,12 +89,12 @@
         }
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: currentFacingMode } 
+                video: { facingMode: currentFacingMode, width: 640, height: 480 } 
             });
             video.srcObject = stream;
-            requestAnimationFrame(analyze);
+            requestAnimationFrame(monitor);
         } catch (err) {
-            alert("Camera Error: Please allow access.");
+            alert("SAMi requires camera access to monitor movement.");
         }
     }
 
@@ -109,90 +103,100 @@
         startCamera();
     }
 
-    function analyze() {
-        if (isAlarming) return requestAnimationFrame(analyze);
+    function monitor() {
+        if (isAlarming) return requestAnimationFrame(monitor);
 
         if (canvas.width !== video.videoWidth) {
-            canvas.width = trailCanvas.width = video.videoWidth;
-            canvas.height = trailCanvas.height = video.videoHeight;
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
         }
 
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const currentFrame = ctx.getImageData(0, 0, canvas.width, canvas.height);
         
-        trailCtx.fillStyle = 'rgba(0, 0, 0, 0.08)'; 
-        trailCtx.fillRect(0, 0, trailCanvas.width, trailCanvas.height);
-
         if (prevFrame) {
-            let movementPoints = 0;
+            let moveAmount = 0;
             let minX = canvas.width, minY = canvas.height, maxX = 0, maxY = 0;
 
-            for (let i = 0; i < currentFrame.data.length; i += 20) { 
+            // Movement Sensitivity
+            for (let i = 0; i < currentFrame.data.length; i += 32) { 
                 const diff = Math.abs(currentFrame.data[i] - prevFrame.data[i]);
-                if (diff > 55) { 
-                    movementPoints++;
+                if (diff > 45) { 
+                    moveAmount++;
                     const x = (i / 4) % canvas.width;
                     const y = Math.floor((i / 4) / canvas.width);
                     if (x < minX) minX = x; if (x > maxX) maxX = x;
                     if (y < minY) minY = y; if (y > maxY) maxY = y;
-                    trailCtx.fillStyle = "rgba(255, 80, 0, 0.7)";
-                    trailCtx.fillRect(x, y, 6, 6);
                 }
             }
 
-            if (movementPoints > 80) {
-                // Neon Glow Outline
-                ctx.strokeStyle = "rgba(255, 0, 0, 0.3)";
-                ctx.lineWidth = 14;
-                ctx.strokeRect(minX - 12, minY - 12, (maxX - minX) + 24, (maxY - minY) + 24);
-                ctx.strokeStyle = "#ff0000";
-                ctx.lineWidth = 6;
-                ctx.strokeRect(minX - 12, minY - 12, (maxX - minX) + 24, (maxY - minY) + 24);
+            // High-Frequency Movement Tracking
+            if (moveAmount > 50) {
+                // Neon Activity Outline
+                ctx.strokeStyle = "rgba(0, 242, 234, 0.5)";
+                ctx.lineWidth = 4;
+                ctx.strokeRect(minX - 10, minY - 10, (maxX - minX) + 20, (maxY - minY) + 20);
                 
-                jitterBuffer.push(movementPoints);
-                if (jitterBuffer.length > 20) {
-                    const avg = jitterBuffer.reduce((a,b) => a+b) / 20;
-                    if (Math.abs(movementPoints - avg) > 2000) triggerAlarm();
-                    jitterBuffer.shift();
+                activityBuffer.push(moveAmount);
+                if (activityBuffer.length > 25) { // Monitor over ~1 second of motion
+                    const avg = activityBuffer.reduce((a,b) => a+b) / 25;
+                    const variance = activityBuffer.filter(x => Math.abs(x - avg) > 1500).length;
+                    
+                    // If movement is rhythmic and sustained
+                    if (variance > 10) triggerAlarm();
+                    activityBuffer.shift();
                 }
+            } else {
+                if (activityBuffer.length > 0) activityBuffer.shift();
             }
         }
         prevFrame = currentFrame;
-        requestAnimationFrame(analyze);
+        requestAnimationFrame(monitor);
     }
 
     function triggerAlarm() {
         if (isAlarming) return;
         isAlarming = true;
         
-        // Popup UI Elements
         sidebar.style.display = 'flex';
         alarmOverlay.style.display = 'flex';
         
         if (!audioCtx) audioCtx = new AudioContext();
         siren = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
-        siren.type = 'sawtooth';
-        siren.frequency.setValueAtTime(800, audioCtx.currentTime); 
-        siren.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.15);
-        gain.gain.value = 0.8;
+        const vibrato = audioCtx.createOscillator();
+        const vibratoGain = audioCtx.createGain();
+
+        // SAMi Style Pulsing Alarm
+        siren.type = 'square';
+        siren.frequency.setValueAtTime(440, audioCtx.currentTime); 
+        
+        vibrato.frequency.value = 5; // Hz (Pulsing speed)
+        vibratoGain.gain.value = 50; 
+        
+        vibrato.connect(vibratoGain);
+        vibratoGain.connect(siren.frequency);
+        
+        gain.gain.value = 0.6;
         siren.connect(gain);
         gain.connect(audioCtx.destination);
+        
         siren.start();
+        vibrato.start();
+        
+        if (navigator.vibrate) navigator.vibrate([500, 200, 500]);
     }
 
     function resetSystem() {
         isAlarming = false;
-        jitterBuffer = [];
+        activityBuffer = [];
         sidebar.style.display = 'none';
         alarmOverlay.style.display = 'none';
         if (siren) { siren.stop(); siren = null; }
         ctx.clearRect(0,0,canvas.width, canvas.height);
-        trailCtx.clearRect(0,0,trailCanvas.width, trailCanvas.height);
-        requestAnimationFrame(analyze);
+        requestAnimationFrame(monitor);
     }
 
-    // Start on load
     window.addEventListener('touchstart', () => { if(!audioCtx) audioCtx = new AudioContext(); }, {once: true});
     startCamera();
 </script>
