@@ -4,24 +4,31 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link rel="manifest" href="manifest.json">
-    <title>Vulcan Guard: Human Only</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tracking.js/1.1.3/tracking-min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tracking.js/1.1.3/data/face-min.js"></script>
+    <title>Vulcan Guard: IR Tracer PRO</title>
     <style>
-        :root { --neon: #00f2ea; --bg: #0b0c10; --alert: #ff0055; --tracking: #ff0000; }
+        :root { --neon: #00f2ea; --bg: #0b0c10; --alert: #ff0055; --ir-heat: #ff3c00; }
         html, body { height: 100%; width: 100%; margin: 0; padding: 0; background: #000; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
         
-        .viewport { position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
-        video { position: absolute; width: 100%; height: 100%; object-fit: cover; opacity: 0.5; filter: grayscale(1) contrast(1.2); }
+        /* Infrared Filter */
+        video { 
+            position: absolute; width: 100%; height: 100%; object-fit: cover; 
+            filter: brightness(1.1) contrast(1.8) saturate(0) sepia(1) hue-rotate(320deg) invert(1); 
+            opacity: 0.35; 
+        }
+        
+        /* Viewport Layers */
+        .viewport { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
         canvas { position: absolute; width: 100%; height: 100%; object-fit: cover; z-index: 10; }
+        #trailCanvas { position: absolute; width: 100%; height: 100%; object-fit: cover; z-index: 5; opacity: 0.7; }
 
-        /* UI Elements */
-        .status-ui { position: absolute; top: 20px; left: 20px; z-index: 100; font-size: 10px; text-transform: uppercase; letter-spacing: 2px; color: var(--neon); }
-        .dot { height: 8px; width: 8px; background: var(--tracking); border-radius: 50%; display: inline-block; margin-right: 8px; box-shadow: 0 0 10px var(--tracking); }
+        /* UI Overlays */
+        .ui-header { position: absolute; top: 20px; left: 20px; z-index: 100; font-size: 10px; text-transform: uppercase; letter-spacing: 2px; color: var(--ir-heat); font-weight: bold; }
+        .dot { height: 8px; width: 8px; background: var(--ir-heat); border-radius: 50%; display: inline-block; margin-right: 8px; box-shadow: 0 0 10px var(--ir-heat); animation: blink 1s infinite; }
+        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
 
         .sidebar { 
             position: absolute; right: 0; top: 0; height: 100%; width: 85px; 
-            background: rgba(10, 0, 0, 0.9); border-left: 2px solid var(--alert); 
+            background: rgba(20, 0, 0, 0.9); border-left: 2px solid var(--alert); 
             display: flex; align-items: center; justify-content: center; z-index: 1000;
         }
         .fine-btn { 
@@ -31,23 +38,24 @@
         }
 
         #alarm-overlay { 
-            position: fixed; inset: 0; background: rgba(255, 0, 85, 0.9); 
+            position: fixed; inset: 0; background: rgba(255, 0, 0, 0.85); 
             display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 2000; 
-            animation: pulse 0.4s infinite; pointer-events: none;
+            animation: pulse 0.3s infinite; pointer-events: none;
         }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
     </style>
 </head>
 <body>
 
 <div id="alarm-overlay">
-    <h1 style="font-size: 40px; text-align: center; text-transform: uppercase;">Human Distress Detected</h1>
-    <p>TAP SIDEBAR TO RESET SYSTEM</p>
+    <h1 style="font-size: 40px; text-align: center; font-weight: 900; text-transform: uppercase;">Critical Jitter Detected</h1>
+    <p style="letter-spacing: 2px;">MANUAL RESET REQUIRED</p>
 </div>
 
 <div class="viewport">
-    <div class="status-ui"><span class="dot"></span> Human Scan Active</div>
-    <video id="video" preload autoplay loop muted playsinline></video>
+    <div class="ui-header"><span class="dot"></span> IR MOTION TRACER ACTIVE</div>
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="trailCanvas"></canvas>
     <canvas id="canvas"></canvas>
     <div class="sidebar">
         <button class="fine-btn" onclick="resetSystem()">I'M FINE</button>
@@ -57,100 +65,129 @@
 <script>
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
-    const context = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    
+    // Trail Engine
+    const trailCanvas = document.getElementById('trailCanvas');
+    const trailCtx = trailCanvas.getContext('2d');
+    
     const alarmOverlay = document.getElementById('alarm-overlay');
     
-    let isEmergency = false;
+    let prevFrame = null;
+    let jitterBuffer = [];
+    let isAlarming = false;
     let audioCtx = null;
-    let alarmOscillator = null;
-    let personHistory = [];
+    let siren = null;
 
-    // 1. Start Camera
+    // 1. Initialize IR Camera
     navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
         .then(stream => { 
             video.srcObject = stream; 
-            // Unlock audio context on first click
-            window.addEventListener('click', () => { if(!audioCtx) audioCtx = new AudioContext(); }, {once: true});
+            requestAnimationFrame(analyze);
+            // Audio unlock on first touch
+            window.addEventListener('touchstart', () => { if(!audioCtx) audioCtx = new AudioContext(); }, {once: true});
         });
 
-    // 2. Human Face/Object Tracker
-    const tracker = new tracking.ObjectTracker(['face']);
-    tracker.setInitialScale(4);
-    tracker.setStepSize(2);
-    tracker.setEdgesDensity(0.1);
+    function analyze() {
+        if (isAlarming) return requestAnimationFrame(analyze);
 
-    tracker.on('track', function(event) {
-        if (isEmergency) return;
-        context.clearRect(0, 0, canvas.width, canvas.height);
+        // Sync canvas sizes
+        if (canvas.width !== video.videoWidth) {
+            canvas.width = trailCanvas.width = video.videoWidth;
+            canvas.height = trailCanvas.height = video.videoHeight;
+        }
 
-        event.data.forEach(function(rect) {
-            // Highlight Person in Red
-            context.strokeStyle = '#ff0000';
-            context.lineWidth = 4;
-            context.strokeRect(rect.x, rect.y, rect.width, rect.height);
-            
-            analyzeJitter(rect);
-        });
-    });
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const currentFrame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        
+        // Add fading to the trail
+        trailCtx.fillStyle = 'rgba(0, 0, 0, 0.05)'; 
+        trailCtx.fillRect(0, 0, trailCanvas.width, trailCanvas.height);
 
-    // 3. Jitter Detection for People
-    function analyzeJitter(rect) {
-        const center = { x: rect.x + rect.width/2, y: rect.y + rect.height/2 };
-        personHistory.push(center);
+        if (prevFrame) {
+            let movementPoints = 0;
+            let minX = canvas.width, minY = canvas.height, maxX = 0, maxY = 0;
 
-        if (personHistory.length > 15) {
-            personHistory.shift();
-            
-            let totalDev = 0;
-            for(let i = 1; i < personHistory.length; i++) {
-                totalDev += Math.abs(personHistory[i].x - personHistory[i-1].x);
-                totalDev += Math.abs(personHistory[i].y - personHistory[i-1].y);
+            // 2. IR Motion & Heat Trail Engine
+            for (let i = 0; i < currentFrame.data.length; i += 16) { 
+                const diff = Math.abs(currentFrame.data[i] - prevFrame.data[i]);
+                
+                if (diff > 50) { 
+                    movementPoints++;
+                    const x = (i / 4) % canvas.width;
+                    const y = Math.floor((i / 4) / canvas.width);
+
+                    // Update Outline Bounds
+                    if (x < minX) minX = x; if (x > maxX) maxX = x;
+                    if (y < minY) minY = y; if (y > maxY) maxY = y;
+
+                    // Draw Fading Heat Trail
+                    trailCtx.fillStyle = "rgba(255, 100, 0, 0.6)";
+                    trailCtx.fillRect(x, y, 5, 5);
+                }
             }
 
-            // If the person's face/body is vibrating rapidly
-            if (totalDev > 400) {
-                triggerEmergency();
+            // 3. Draw Thick Neon Outline
+            if (movementPoints > 100) {
+                // Outer Glow
+                ctx.strokeStyle = "rgba(255, 0, 0, 0.3)";
+                ctx.lineWidth = 12;
+                ctx.strokeRect(minX - 10, minY - 10, (maxX - minX) + 20, (maxY - minY) + 20);
+                
+                // Inner Neon Line
+                ctx.strokeStyle = "#ff0000";
+                ctx.lineWidth = 6;
+                ctx.strokeRect(minX - 10, minY - 10, (maxX - minX) + 20, (maxY - minY) + 20);
+                
+                // Track "Jitter" Intensity over 20 frames
+                jitterBuffer.push(movementPoints);
+                if (jitterBuffer.length > 20) {
+                    const avg = jitterBuffer.reduce((a,b) => a+b) / 20;
+                    const currentJitter = Math.abs(movementPoints - avg);
+                    
+                    if (currentJitter > 1800) { // Slightly adjusted sensitivity
+                        triggerAlarm();
+                    }
+                    jitterBuffer.shift();
+                }
             }
         }
+
+        prevFrame = currentFrame;
+        requestAnimationFrame(analyze);
     }
 
-    tracking.track('#video', tracker);
-
-    function triggerEmergency() {
-        if (isEmergency || !audioCtx) return;
+    function triggerAlarm() {
+        if (isAlarming || !audioCtx) return;
         isEmergency = true;
         alarmOverlay.style.display = 'flex';
         
-        // High-Pitch Safety Siren
-        alarmOscillator = audioCtx.createOscillator();
+        // 4. High-Intensity Siren
+        siren = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
-        alarmOscillator.type = 'sawtooth';
-        alarmOscillator.frequency.setValueAtTime(880, audioCtx.currentTime); 
-        alarmOscillator.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.2);
+        siren.type = 'sawtooth';
+        siren.frequency.setValueAtTime(900, audioCtx.currentTime); 
+        siren.frequency.exponentialRampToValueAtTime(1400, audioCtx.currentTime + 0.1);
         
         gain.gain.value = 1.0;
-        alarmOscillator.connect(gain);
+        siren.connect(gain);
         gain.connect(audioCtx.destination);
-        alarmOscillator.start();
+        siren.start();
     }
 
     function resetSystem() {
-        isEmergency = false;
-        personHistory = [];
+        isAlarming = false;
+        jitterBuffer = [];
         alarmOverlay.style.display = 'none';
-        if (alarmOscillator) {
-            alarmOscillator.stop();
-            alarmOscillator = null;
+        if (siren) {
+            siren.stop();
+            siren = null;
         }
+        // Clear trail and outline
+        ctx.clearRect(0,0,canvas.width, canvas.height);
+        trailCtx.clearRect(0,0,trailCanvas.width, trailCanvas.height);
+        requestAnimationFrame(analyze);
     }
-
-    // Handle Resize
-    window.addEventListener('resize', () => {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-    });
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
 </script>
 </body>
 </html>
